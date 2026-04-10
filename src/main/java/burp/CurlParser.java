@@ -131,14 +131,16 @@ public class CurlParser {
         }
 
         // Extract request body
-        Pattern bodyPattern = Pattern.compile("(?:--data-raw|-d)\\s+\\$?(['\"])(.*?)(\\1)", Pattern.DOTALL);
+        Pattern bodyPattern = Pattern.compile("(?:--data-raw|--data-binary|--data|-d)\\s+\\$?(['\"])(.*?)(\\1)", Pattern.DOTALL);
         Matcher bodyMatcher = bodyPattern.matcher(curlCommand);
 
         if (bodyMatcher.find()) {
             String rawBody = bodyMatcher.group(2);
 
-            // Turn sequences like \\n and \\uXXXX into real newlines / code points
-            body = StringEscapeUtils.unescapeJava(rawBody);
+            // Only unescape for $'...' dollar-quoted strings (bash C-style quoting)
+            int quoteStart = bodyMatcher.start(1);
+            boolean isDollarQuoted = quoteStart > 0 && curlCommand.charAt(quoteStart - 1) == '$';
+            body = isDollarQuoted ? StringEscapeUtils.unescapeJava(rawBody) : rawBody;
 
             // If -X option is not specified and --data-raw is present, assume it's a POST request
             if (requestMethod == null || "GET".equals(requestMethod)) {
