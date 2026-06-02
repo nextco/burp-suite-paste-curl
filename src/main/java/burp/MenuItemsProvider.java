@@ -57,17 +57,29 @@ public class MenuItemsProvider implements ContextMenuItemsProvider {
 
         HttpService service = HttpService.httpService(curlRequest.getBaseUrl());
 
-        HttpRequest output = HttpRequest.httpRequestFromUrl(curlRequest.getBaseUrl())
-                .withMethod(curlRequest.getMethod())
-                .withBody(curlRequest.getBody());
-
-        for (HttpHeader header : curlRequest.getHeaders()) {
-            output = output.withHeader(header.name(), header.value());
+        // Build the request from the raw cURL data only. httpRequestFromUrl() would inject Burp's
+        // default browser headers (User-Agent: Mozilla, Sec-*, Accept: text/html, ...); parsing a
+        // raw request string adds nothing, so the result matches the copied cURL exactly.
+        String target = curlRequest.getPath();
+        if (curlRequest.getQuery() != null && !curlRequest.getQuery().isEmpty()) {
+            target += "?" + curlRequest.getQuery();
         }
 
-        output = output.withService(service);
+        StringBuilder raw = new StringBuilder();
+        raw.append(curlRequest.getMethod()).append(" ").append(target).append(" HTTP/1.1\r\n");
 
-        return output;
+        boolean hasHost = false;
+        for (HttpHeader header : curlRequest.getHeaders()) {
+            if ("host".equalsIgnoreCase(header.name())) hasHost = true;
+            raw.append(header.name()).append(": ").append(header.value()).append("\r\n");
+        }
+        // A valid HTTP/1.1 request needs a Host line; add it only if the cURL command lacked one.
+        if (!hasHost) {
+            raw.append("Host: ").append(curlRequest.getHost()).append("\r\n");
+        }
+        raw.append("\r\n").append(curlRequest.getBody());
+
+        return HttpRequest.httpRequest(service, raw.toString());
     }
 
     public String getClipboardContent() {
