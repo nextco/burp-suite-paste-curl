@@ -92,10 +92,13 @@ public class CurlParser {
         }
 
         // Extract headers
-        Pattern headerPattern = Pattern.compile("(?:--header|-H)\\s+['\"]?([^'\"]+)['\"]?");
+        Pattern headerPattern = Pattern.compile("(?:--header|-H)\\s+(?:'([^']*)'|\"([^\"]*)\"|(\\S+))");
         Matcher headerMatcher = headerPattern.matcher(curlCommand);
         while (headerMatcher.find()) {
             String header = headerMatcher.group(1);
+            if (header == null) header = headerMatcher.group(2);
+            if (header == null) header = headerMatcher.group(3);
+
             int colonIndex = header.indexOf(':');
             if (colonIndex != -1) {
                 String name = header.substring(0, colonIndex).trim();
