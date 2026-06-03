@@ -1,14 +1,18 @@
 package burp;
 
 import burp.api.montoya.MontoyaApi;
+import burp.api.montoya.http.HttpService;
 import burp.api.montoya.http.message.HttpHeader;
+import burp.api.montoya.http.message.requests.HttpRequest;
 
 import java.net.URL;
 import org.apache.commons.text.StringEscapeUtils;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Parses cURL request into strings.
@@ -96,6 +100,9 @@ public class CurlParser {
             if (colonIndex != -1) {
                 String name = header.substring(0, colonIndex).trim();
                 String value = header.substring(colonIndex + 1).trim();
+                if ("accept-encoding".equalsIgnoreCase(name) && isZstdDisabled(api)) {
+                    value = removeZstd(value);
+                }
 
                 HttpHeader httpHeader = new HttpHeaderImpl(name, value);
                 headers.add(httpHeader);
@@ -158,6 +165,22 @@ public class CurlParser {
         } else {
             return null;
         }
+    }
+
+    // Defaults to true (strip zstd) when there is no UI/preferences, e.g. unit tests.
+    static boolean isZstdDisabled(MontoyaApi api) {
+        if (api == null) {
+            return true;
+        }
+        return SettingsPanel.isEnabled(api, SettingsPanel.DISABLE_ZSTD);
+    }
+
+    // Burp can't decode zstd, so strip it from accept-encoding to keep responses readable.
+    static String removeZstd(String acceptEncoding) {
+        return Arrays.stream(acceptEncoding.split(","))
+                .map(String::trim)
+                .filter(token -> !token.equalsIgnoreCase("zstd"))
+                .collect(Collectors.joining(", "));
     }
 
     protected static void log(String toLog, MontoyaApi api) {
@@ -234,6 +257,43 @@ public class CurlParser {
 
         public String getBody() {
             return body;
+        }
+
+        public HttpRequest toHttp1Request() {
+            HttpService service = HttpService.httpService(getBaseUrl());
+
+            StringBuilder raw = new StringBuilder();
+            raw.append(getMethod()).append(" ").append(pathWithQuery()).append(" HTTP/1.1\r\n");
+
+            if (headers.stream().noneMatch(h -> "host".equalsIgnoreCase(h.name()))) {
+                raw.append("Host: ").append(getHost()).append("\r\n");
+            }
+            for (HttpHeader header : headers) {
+                raw.append(header.name()).append(": ").append(header.value()).append("\r\n");
+            }
+            raw.append("\r\n").append(getBody());
+
+            return HttpRequest.httpRequest(service, raw.toString());
+        }
+
+        public HttpRequest toHttp2Request() {
+            HttpService service = HttpService.httpService(getBaseUrl());
+
+            List<HttpHeader> http2Headers = new ArrayList<>(headers);
+            if (http2Headers.stream().noneMatch(h -> "host".equalsIgnoreCase(h.name()))) {
+                http2Headers.add(0, new HttpHeaderImpl("Host", getHost()));
+            }
+
+            return HttpRequest.http2Request(service, http2Headers, getBody())
+                    .withMethod(getMethod())
+                    .withPath(pathWithQuery());
+        }
+
+        private String pathWithQuery() {
+            if (query != null && !"".equals(query)) {
+                return getPath() + "?" + query;
+            }
+            return getPath();
         }
     }
 }

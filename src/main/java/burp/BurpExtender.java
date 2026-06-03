@@ -25,6 +25,9 @@ public class BurpExtender implements BurpExtension {
 
         api.userInterface().registerContextMenuItemsProvider(new MenuItemsProvider(api));
 
+        // settings tab with the HTTP/1.1 and HTTP/2 toggles
+        api.userInterface().registerSuiteTab(EXTENSION_NAME, new SettingsPanel(api));
+
         instance = this;
     }
 
